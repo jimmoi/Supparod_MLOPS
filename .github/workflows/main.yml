@@ -1,0 +1,100 @@
+# ชื่อของ Workflow
+name: MLOps Pipeline CI/CT/CD
+
+
+# กำหนดเงื่อนไขการรัน: เมื่อมีการ push หรือ pull request ไปยัง branch 'main'
+on:
+  push:
+    branches: [ "main" ] 
+  pull_request:
+    branches: [ "main" ]
+
+
+jobs:
+  # --- JOB ใหม่ที่เพิ่มเข้ามาสำหรับ CI ---
+  ci-checks:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      # การดึงโค้ด (checkout)" จาก Repository ของคุณลงมาไว้บนเครื่อง
+
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.10'
+
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r mlops_pipeline/requirements.txt
+        # ติดตั้งเครื่องมือสำหรับ Linting และ Testing
+        pip install flake8 pytest pandas
+
+
+    - name: Lint with flake8
+      # ตรวจสอบคุณภาพและความถูกต้องของโค้ด Python
+      run: |
+        flake8 mlops_pipeline/scripts --count --select=E9,F63,F7,F82 --show-source --statistics
+        flake8 mlops_pipeline/scripts --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
+
+
+    - name: Test with pytest
+      # pytest 
+      run: |
+        pytest || (if [ $? -eq 5 ]; then echo "Pytest finished: No tests found."; exit 0; else exit $?; fi)
+
+
+  build-and-train:
+    # ทำให้ job นี้ต้องรันหลังจาก ci-checks สำเร็จเท่านั้น
+    needs: ci-checks
+    runs-on: ubuntu-latest
+    env:
+      MLFLOW_TRACKING_URI: ${{ secrets.MLFLOW_TRACKING_URI }}
+      MLFLOW_TRACKING_USERNAME: ${{ secrets.MLFLOW_TRACKING_USERNAME }}
+      MLFLOW_TRACKING_PASSWORD: ${{ secrets.MLFLOW_TRACKING_PASSWORD }}
+
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.10'
+
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r mlops_pipeline/requirements.txt
+
+
+    - name: Run Data Validation
+      run: python mlops_pipeline/scripts/01_data_validation.py
+
+
+    - name: Run Data Preprocessing
+      id: preprocessing
+      run: python mlops_pipeline/scripts/02_data_preprocessing.py
+
+
+    - name: Run Model Training, Evaluation, and Registration
+      run: python mlops_pipeline/scripts/03_train_evaluate_register.py ${{ steps.preprocessing.outputs.run_id }} 10.0
+
+
+    - name: Transition Model to Staging
+      if: success()
+      run: python mlops_pipeline/scripts/04_transition_model.py "iris-classifier-prod" "Staging"
+
+
+    - name: Upload MLflow artifacts for inspection
+      if: success()
+      uses: actions/upload-artifact@v4
+      with:
+        name: mlflow-artifacts
+        path: mlruns/

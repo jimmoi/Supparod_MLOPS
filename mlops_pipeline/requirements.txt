@@ -1,0 +1,5 @@
+requests
+numpy<2.0
+mlflow
+scikit-learn
+pandas
