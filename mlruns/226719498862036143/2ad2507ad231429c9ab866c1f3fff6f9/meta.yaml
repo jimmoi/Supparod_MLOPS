@@ -1,0 +1,14 @@
+artifact_uri: file:///C:/xampp/htdocs/Supparod_MLOPS/mlruns/226719498862036143/2ad2507ad231429c9ab866c1f3fff6f9/artifacts
+end_time: 1759435311371
+entry_point_name: ''
+experiment_id: '226719498862036143'
+lifecycle_stage: active
+run_id: 2ad2507ad231429c9ab866c1f3fff6f9
+run_name: kindly-gnu-329
+source_name: ''
+source_type: 4
+source_version: ''
+start_time: 1759435311156
+status: 3
+tags: []
+user_id: gotxz

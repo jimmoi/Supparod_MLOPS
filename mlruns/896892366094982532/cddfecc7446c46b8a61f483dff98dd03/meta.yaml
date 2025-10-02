@@ -1,0 +1,14 @@
+artifact_uri: file:///C:/xampp/htdocs/Supparod_MLOPS/mlruns/896892366094982532/cddfecc7446c46b8a61f483dff98dd03/artifacts
+end_time: 1759435044039
+entry_point_name: ''
+experiment_id: '896892366094982532'
+lifecycle_stage: active
+run_id: cddfecc7446c46b8a61f483dff98dd03
+run_name: logistic_regression_C_1.0
+source_name: ''
+source_type: 4
+source_version: ''
+start_time: 1759435037620
+status: 3
+tags: []
+user_id: gotxz

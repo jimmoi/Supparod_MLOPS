@@ -2,6 +2,7 @@ import os
 import pandas as pd
 from sklearn.model_selection import train_test_split
 import mlflow
+import json
 
 
 def preprocess_data(test_size=0.25, random_state=42):
@@ -58,6 +59,10 @@ def preprocess_data(test_size=0.25, random_state=42):
         if "GITHUB_OUTPUT" in os.environ:
             with open(os.environ["GITHUB_OUTPUT"], "a") as f:
                 print(f"run_id={run_id}", file=f)
+        else:
+            with open("run_id.json", "w") as f:
+                json.dump({"run_id": run_id}, f)
+            
 
 
 if __name__ == "__main__":

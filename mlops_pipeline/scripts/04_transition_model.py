@@ -37,12 +37,20 @@ def transition_model_alias(model_name, alias):
 
 
 if __name__ == "__main__":
-    if len(sys.argv) != 3:
+    import os
+    if len(sys.argv) == 3:
+        model_name_arg = sys.argv[1]
+        target_alias_arg = sys.argv[2]
+    elif len(sys.argv) == 2:
+        import os
+        if (sys.argv[1]=="local") and os.path.exists("mlruns\models"): 
+            model_name_arg = os.listdir("mlruns\models")[0]  # Assuming there's only one model directory
+            target_alias_arg = "Staging"
+    else:
         print("Usage: python scripts/04_transition_model.py <model_name> <alias>")
         sys.exit(1)
     
-    model_name_arg = sys.argv[1]
-    target_alias_arg = sys.argv[2]
+    
     transition_model_alias(model_name_arg, target_alias_arg)
 
 

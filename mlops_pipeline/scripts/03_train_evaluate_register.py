@@ -89,10 +89,21 @@ def train_evaluate_register(preprocessing_run_id, C=1.0):
 
 
 if __name__ == "__main__":
-    if len(sys.argv) < 2:
+    if len(sys.argv) == 3:
+        run_id = sys.argv[1]
+        c_value = float(sys.argv[2]) if len(sys.argv) > 2 else 1.0
+    elif len(sys.argv) == 2:
+        if (sys.argv[1]=="local") and (os.path.exists("run_id.json")):
+            with open("run_id.json", "r") as f:
+                import json
+                data = json.load(f)
+                run_id = data.get("run_id")
+                c_value = 0.666
+                if not run_id:
+                    print("run_id.json found but 'run_id' key is missing.")
+                    sys.exit(1)
+    else:
         print("Usage: python scripts/03_train_evaluate_register.py <preprocessing_run_id> [C_value]")
         sys.exit(1)
     
-    run_id = sys.argv[1]
-    c_value = float(sys.argv[2]) if len(sys.argv) > 2 else 1.0
     train_evaluate_register(preprocessing_run_id=run_id, C=c_value)
