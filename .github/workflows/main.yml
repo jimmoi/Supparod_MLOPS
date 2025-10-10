@@ -78,18 +78,14 @@ jobs:
       run: python mlops_pipeline/scripts/01_data_validation.py
 
 
-    - name: Run Data Preprocessing
+    - name: Run Data Preprocessing, and Model Training, Evaluation, and Registration
       id: preprocessing
-      run: python mlops_pipeline/scripts/02_data_preprocessing.py
-
-
-    - name: Run Model Training, Evaluation, and Registration
-      run: python mlops_pipeline/scripts/03_train_evaluate_register.py ${{ steps.preprocessing.outputs.run_id }} 10.0
+      run: python mlops_pipeline/scripts/02_preprocess_and_training.py ${{ steps.preprocessing.outputs.run_id }}
 
 
     - name: Transition Model to Staging
       if: success()
-      run: python mlops_pipeline/scripts/04_transition_model.py "iris-classifier-prod" "Staging"
+      run: python mlops_pipeline/scripts/03_transition_model.py "GhostNet-Classifier-Prod" "Staging"
 
 
     - name: Upload MLflow artifacts for inspection
