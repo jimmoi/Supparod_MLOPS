@@ -1,4 +1,8 @@
 # Supprarod_MLOPS
+# Install CUDA toolkit first
+https://developer.nvidia.com/cuda-toolkit
+Using CUDA 13.0
+
 
 conda create --name <environment_name> <packages_to_install>
 
