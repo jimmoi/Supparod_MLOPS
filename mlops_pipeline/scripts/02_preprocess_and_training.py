@@ -1,30 +1,32 @@
 import os
-import random
+# import random
 import sys
-import numpy as np
+# import numpy as np
 import pandas as pd
 import pickle
 import json
 from tqdm import tqdm
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
-from torch.utils.data import random_split
-from torch.utils.data import DataLoader, Dataset, Subset
-from torch.utils.data import random_split, SubsetRandomSampler
-from torchvision import datasets, transforms, models 
-from torchvision.datasets import ImageFolder
-from torchvision.transforms import ToTensor
-from torchvision.utils import make_grid
+# import torch.nn.functional as F
+# from torch.utils.data import random_split
+# from torch.utils.data import DataLoader, Dataset, Subset
+# from torch.utils.data import random_split, SubsetRandomSampler
+from torchvision import transforms
+# from torchvision import datasets, models 
 
-import matplotlib.pyplot as plt
+# from torchvision.datasets import ImageFolder
+# from torchvision.transforms import ToTensor
+# from torchvision.utils import make_grid
+
+# import matplotlib.pyplot as plt
 from sklearn.preprocessing import LabelEncoder
-from sklearn.model_selection import train_test_split
-from sklearn.metrics import classification_report
+# from sklearn.model_selection import train_test_split
+# from sklearn.metrics import classification_report
 from PIL import Image
 
 import mlflow
-import mlflow.sklearn
+# import mlflow.sklearn
 from mlflow.artifacts import download_artifacts # เพิ่ม import นี้
 
 # Data Preprocessing
