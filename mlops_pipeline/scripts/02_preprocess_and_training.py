@@ -10,7 +10,7 @@ import torch
 import torch.nn as nn
 # import torch.nn.functional as F
 # from torch.utils.data import random_split
-# from torch.utils.data import DataLoader, Dataset, Subset
+from torch.utils.data import DataLoader, Dataset
 # from torch.utils.data import random_split, SubsetRandomSampler
 from torchvision import transforms
 # from torchvision import datasets, models 
@@ -76,7 +76,7 @@ def preprocess_data(data_validation_id):
         def create_path_label_list(df):
             path_label_list = []
             for _, row in df.iterrows():
-                path = row['path']
+                path = row['file_path']
                 label = row['label']
                 path_label_list.append((path, label))
             return path_label_list
@@ -93,7 +93,7 @@ def preprocess_data(data_validation_id):
 
 
         ## เก็บ artifact transform ที่ใช้
-        with open("preprocess_artifact.pkl", "wb") as f:
+        with open(os.path.join(processed_data_dir, "preprocess_artifact.pkl"), "wb") as f:
             data = {"label_encoder": le,
                     "transform": transform}
             pickle.dump(data, f)
@@ -114,7 +114,7 @@ def preprocess_data(data_validation_id):
                 json.dump(data, f)
 
 
-        class CustomDataset(torch.utils.data.Dataset):
+        class CustomDataset(Dataset):
             def __init__(self, path_label, transform=None):
                 self.path_label = path_label
                 self.transform = transform
@@ -135,10 +135,10 @@ def preprocess_data(data_validation_id):
 
         train_dataset = CustomDataset(create_path_label_list(train_df), transform=transform)
         val_dataset = CustomDataset(create_path_label_list(val_df), transform=transform)
+        batch_size = 64
+        train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
+        val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False)
 
-        train_loader = DataLoader(train_dataset, batch_size=32, shuffle=True)
-        val_loader = DataLoader(val_dataset, batch_size=32, shuffle=False)
-        
         print("-" * 50)
         print(f"Data preprocessing run finished. Please use the following Run ID for the predict step:")
         print(f"preprocessing Run ID: {run_id}")
@@ -166,15 +166,15 @@ def train_evaluate_register(le, train_loader, val_loader):
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     pretrained_ghostnet = torch.hub.load('huawei-noah/ghostnet', 'ghostnet_1x', pretrained=True)
 
-    num_ftrs = pretrained_ghostnet.fc.in_features
-    pretrained_ghostnet.fc = nn.Linear(num_ftrs, le.classes_.size)
+    num_ftrs = pretrained_ghostnet.classifier.in_features
+    pretrained_ghostnet.classifier = nn.Linear(num_ftrs, le.classes_.size)
     pretrained_ghostnet = pretrained_ghostnet.to(device)
     
     criterion = nn.CrossEntropyLoss()
     optimizer = torch.optim.Adam(pretrained_ghostnet.parameters(), lr=0.001)
     
     def train_model(model, train_loader, val_loader, criterion, optimizer, device):
-        num_epochs = 10
+        num_epochs = 1
         best_val_acc = 0.0
         best_model_wts = None
 
@@ -243,22 +243,31 @@ def train_evaluate_register(le, train_loader, val_loader):
         # Load best model weights
         if best_model_wts is not None:
             model.load_state_dict(best_model_wts)
-        
-        mlflow.pytorch.log_model(model, "model", registered_model_name="GhostNet_Classifier")
-        
-        if best_val_acc >= ACCURACY_THRESHOLD:
-            print(f"Validation accuracy {best_val_acc:.4f} meets the threshold of {ACCURACY_THRESHOLD}. Registering model...")
-            model_uri = f"runs:/{mlflow.active_run().info.run_id}/GhostNet_Classifier"
-            registered_model = mlflow.register_model(model_uri, "GhostNet-Classifier-Prod")
-            print(f"Model registered as '{registered_model.name}' version {registered_model.version}")
-        else:
-            print(f"Model accuracy ({best_val_acc:.4f}) is below the threshold. Not registering.")
-        print("Training run finished.")
+            
+        return best_val_acc, model
+
+
+    acc, model = train_model(pretrained_ghostnet, train_loader, val_loader, criterion, optimizer, device)
+
+    mlflow.pytorch.log_model(model, "model", registered_model_name="GhostNet_Classifier")
+    
+    if acc >= ACCURACY_THRESHOLD:
+        print(f"Validation accuracy {acc:.4f} meets the threshold of {ACCURACY_THRESHOLD}. Registering model...")
+        model_uri = f"runs:/{mlflow.active_run().info.run_id}/GhostNet_Classifier"
+        registered_model = mlflow.register_model(model_uri, "GhostNet-Classifier-Prod")
+        print(f"Model registered as '{registered_model.name}' version {registered_model.version}")
+    else:
+        print(f"Model accuracy ({acc:.4f}) is below the threshold. Not registering.")
+    print("Training run finished.")
     
     
     
     
-def main():
+def main(run_id):
+    le, train_loader, val_loader = preprocess_data(run_id)
+    train_evaluate_register(le, train_loader, val_loader)
+    
+if __name__ == "__main__":
     if len(sys.argv) == 2:
         if (sys.argv[1]=="local") and (os.path.exists("run_id.json")):
             with open("run_id.json", "r") as f:
@@ -274,5 +283,4 @@ def main():
         print("Usage: python scripts/03_train_evaluate_register.py <validation_run_id>")
         sys.exit(1)
         
-    le, train_loader, val_loader = preprocess_data()
-    train_evaluate_register(le, train_loader, val_loader)
+    main(run_id)

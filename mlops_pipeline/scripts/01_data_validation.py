@@ -33,6 +33,7 @@ def validate_data():
             merged_df["category"] = merged_df["image:FILE"].apply(lambda x: x.split('/')[1]) # from directory structure
             merged_df.rename(columns={"image:FILE": "file_path", "category": "class"}, inplace=True)
             class_names = merged_df["class"].unique()
+            merged_df["file_path"] = merged_df["file_path"].apply(lambda x: os.path.join("Dataset", x))
             
             number_per_class = {}
             for section in data.keys():

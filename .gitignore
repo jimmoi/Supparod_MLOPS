@@ -1,1 +1,7 @@
 Dataset
+test.py
+__pycache__
+mlruns
+processed_data
+validation_data
+*.pyc
