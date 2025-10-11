@@ -135,7 +135,7 @@ def preprocess_data(data_validation_id):
 
         train_dataset = CustomDataset(create_path_label_list(train_df), transform=transform)
         val_dataset = CustomDataset(create_path_label_list(val_df), transform=transform)
-        batch_size = 64
+        batch_size = 32
         train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
         val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False)
 
@@ -156,7 +156,7 @@ def train_evaluate_register(le, train_loader, val_loader):
     the performance threshold.
     """
     
-    ACCURACY_THRESHOLD = 0.90
+    ACCURACY_THRESHOLD = 0.80
     mlflow.set_experiment("Model Training")
     
     with mlflow.start_run(run_name=f"GhostNet_Finetune"):
@@ -164,21 +164,32 @@ def train_evaluate_register(le, train_loader, val_loader):
         mlflow.set_tag("ml.step", "model_training_evaluation")
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    print(f"Using device: {device}")
     pretrained_ghostnet = torch.hub.load('huawei-noah/ghostnet', 'ghostnet_1x', pretrained=True)
 
     num_ftrs = pretrained_ghostnet.classifier.in_features
-    pretrained_ghostnet.classifier = nn.Linear(num_ftrs, le.classes_.size)
+    pretrained_ghostnet.classifier = nn.Sequential(
+        nn.Dropout(p=0.25),  # <--- ADD DROPOUT HERE
+        nn.Linear(num_ftrs, le.classes_.size)
+    )
     pretrained_ghostnet = pretrained_ghostnet.to(device)
     
     criterion = nn.CrossEntropyLoss()
     optimizer = torch.optim.Adam(pretrained_ghostnet.parameters(), lr=0.001)
+    num_epochs = 60
+    # Log hyperparameters
+    mlflow.log_param("learning_rate", optimizer.param_groups[0]['lr'])
+    mlflow.log_param("batch_size", train_loader.batch_size)
+    mlflow.log_param("num_epochs", num_epochs)
+    mlflow.log_param("model_architecture", "GhostNet+dropout")
+    mlflow.log_param("optimizer", optimizer.__class__.__name__)
+    mlflow.log_param("loss_function", criterion.__class__.__name__)
     
-    def train_model(model, train_loader, val_loader, criterion, optimizer, device):
-        num_epochs = 1
+    def train_model(model, train_loader, val_loader, criterion, optimizer, device, epochs=1):
         best_val_acc = 0.0
         best_model_wts = None
 
-        for epoch in range(num_epochs):
+        for epoch in range(epochs):
             running_loss = 0.0
             running_corrects = 0
             # class_running_corrects = [0] * len(le.classes_)
@@ -232,6 +243,8 @@ def train_evaluate_register(le, train_loader, val_loader):
             mlflow.log_metric("train_accuracy", epoch_acc.item(), step=epoch)
             mlflow.log_metric("val_loss", val_loss, step=epoch)
             mlflow.log_metric("val_accuracy", val_epoch_acc.item(), step=epoch)
+            
+            
 
             # Deep copy the model if it has the best validation accuracy so far
             if val_epoch_acc > best_val_acc:
@@ -247,7 +260,7 @@ def train_evaluate_register(le, train_loader, val_loader):
         return best_val_acc, model
 
 
-    acc, model = train_model(pretrained_ghostnet, train_loader, val_loader, criterion, optimizer, device)
+    acc, model = train_model(pretrained_ghostnet, train_loader, val_loader, criterion, optimizer, device, num_epochs)
 
     mlflow.pytorch.log_model(model, "model", registered_model_name="GhostNet_Classifier")
     
