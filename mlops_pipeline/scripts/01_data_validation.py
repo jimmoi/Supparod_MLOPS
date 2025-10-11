@@ -33,7 +33,7 @@ def validate_data():
                 all_df.append(df)
                 
             merged_df = pd.concat(all_df, ignore_index=True)
-            merged_df["category"] = merged_df["image:FILE"].apply(lambda x: os.path.split(x)[-2]) # from directory structure
+            merged_df["category"] = merged_df["image:FILE"].apply(lambda x: os.path.split(x)[0].split("/")[-1]) # from directory structure
             merged_df.rename(columns={"image:FILE": "file_path", "category": "class"}, inplace=True)
             class_names = merged_df["class"].unique()
             merged_df["file_path"] = merged_df["file_path"].apply(lambda x: os.path.join(data["root_dir"], x))
@@ -53,7 +53,7 @@ def validate_data():
                     "number_per_class": number_per_class
                 }
 
-        if os.path.exists("Dataset") and False:
+        if os.path.exists("Dataset"):
             data_path = {
                 "root_dir": r"Dataset",
                 "train": "Dataset/train.csv",
