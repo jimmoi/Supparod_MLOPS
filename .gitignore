@@ -6,3 +6,5 @@ processed_data
 validation_data
 *.pyc
 run_id.json
+test.ipynbW
+test.py

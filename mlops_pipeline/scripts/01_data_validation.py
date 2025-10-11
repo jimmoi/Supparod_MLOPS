@@ -25,19 +25,24 @@ def validate_data():
         def data_validation(data):
             all_df = []
             for section, path in data.items():
+                if section == "root_dir":
+                    continue
                 df = pd.read_csv(path)
+                df = df.sample(frac=1, random_state=42).reset_index(drop=True) # <-- ADD THIS LINE
                 df['sections'] = section
                 all_df.append(df)
                 
             merged_df = pd.concat(all_df, ignore_index=True)
-            merged_df["category"] = merged_df["image:FILE"].apply(lambda x: x.split('/')[1]) # from directory structure
+            merged_df["category"] = merged_df["image:FILE"].apply(lambda x: os.path.split(x)[-2]) # from directory structure
             merged_df.rename(columns={"image:FILE": "file_path", "category": "class"}, inplace=True)
             class_names = merged_df["class"].unique()
-            merged_df["file_path"] = merged_df["file_path"].apply(lambda x: os.path.join("Dataset", x))
+            merged_df["file_path"] = merged_df["file_path"].apply(lambda x: os.path.join(data["root_dir"], x))
             
             number_per_class = {}
             for section in data.keys():
-                section_df = merged_df[merged_df["sections"]==section]
+                if section == "root_dir":
+                    continue
+                section_df = merged_df[merged_df["sections"]==section].copy() 
                 number_per_class[section] = len(section_df["class"])
                 section_df.drop(columns=["sections"], inplace=True)
                 section_df.reset_index(drop=True, inplace=True)
@@ -48,11 +53,20 @@ def validate_data():
                     "number_per_class": number_per_class
                 }
 
-        data_path = {
-            "train": "Dataset/train.csv",
-            "val": "Dataset/val.csv",
-            "test": "Dataset/test.csv"
-        }
+        if os.path.exists("Dataset") and False:
+            data_path = {
+                "root_dir": r"Dataset",
+                "train": "Dataset/train.csv",
+                "val": "Dataset/val.csv",
+                "test": "Dataset/test.csv"
+            }
+        else:
+            data_path = {
+                "root_dir": r"Dataset_github",
+                "train": "Dataset_github/train.csv",
+                "val": "Dataset_github/val.csv",
+                "test": "Dataset_github/test.csv"
+            }
 
         meta_data = data_validation(data_path)
         class_names = meta_data["class_names"]

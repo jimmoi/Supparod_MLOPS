@@ -13,7 +13,8 @@ import torch.nn as nn
 from torch.utils.data import DataLoader, Dataset
 # from torch.utils.data import random_split, SubsetRandomSampler
 from torchvision import transforms
-# from torchvision import datasets, models 
+# from torchvision import datasets
+import torchvision.models as models
 
 # from torchvision.datasets import ImageFolder
 # from torchvision.transforms import ToTensor
@@ -29,10 +30,13 @@ import mlflow
 # import mlflow.sklearn
 from mlflow.artifacts import download_artifacts # เพิ่ม import นี้
 
+
+from torchvision.models import ResNet50_Weights
+
 # Data Preprocessing
-def preprocess_data(data_validation_id):
+def preprocess_data(data_validation_id, batch_size):
     # Set the experiment name
-    mlflow.set_experiment("Data Preprocessing")
+    mlflow.set_experiment(f"Data Preprocessing batch_size_{batch_size}")
     with mlflow.start_run() as run:
         run_id = run.info.run_id
         print(f"Starting data preprocessing run with run_id: {run_id}")
@@ -135,7 +139,7 @@ def preprocess_data(data_validation_id):
 
         train_dataset = CustomDataset(create_path_label_list(train_df), transform=transform)
         val_dataset = CustomDataset(create_path_label_list(val_df), transform=transform)
-        batch_size = 32
+
         train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
         val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False)
 
@@ -149,41 +153,74 @@ def preprocess_data(data_validation_id):
 
 # Model Training
 
-def train_evaluate_register(le, train_loader, val_loader):
+def train_evaluate_register(le, train_loader, val_loader, lr, num_epochs):
     """
     Trains a model, evaluates it, and
     registers the model in the MLflow Model Registry if it meets
     the performance threshold.
     """
     
-    ACCURACY_THRESHOLD = 0.80
-    mlflow.set_experiment("Model Training")
+    param = {
+        "experiment_name": f"Model Training lr_{lr}_epochs_{num_epochs}",
+        "run_name": "GhostNetv3_Finetune",
+        "accuracy_threshold": 0.10,
+        "pretrained_model_url": "ghostnetv3_100",
+        "model_registered_name": "GhostNetv3_Classifier",
+        "model_name": "GhostNetv3-Classifier-Prod",
+        "learning_rate": lr,
+        "batch_size": train_loader.batch_size,
+        "num_epochs": num_epochs,
+        "model_architecture": "GhostNetv3+FC",
+        "optimizer": "Adam",
+        "loss_function": "CrossEntropyLoss",
+    }
     
-    with mlflow.start_run(run_name=f"GhostNet_Finetune"):
+    ACCURACY_THRESHOLD = param["accuracy_threshold"]
+    mlflow.set_experiment(param["experiment_name"])
+
+    with mlflow.start_run(run_name=param["run_name"]):
         print(f"Starting training")
         mlflow.set_tag("ml.step", "model_training_evaluation")
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     print(f"Using device: {device}")
-    pretrained_ghostnet = torch.hub.load('huawei-noah/ghostnet', 'ghostnet_1x', pretrained=True)
+    # 1. Load the pretrained ResNet model
+    import timm
+    # pretrained_model = models.resnet50(weights=ResNet50_Weights.IMAGENET1K_V1)
+    pretrained_model = timm.create_model(param["pretrained_model_url"], pretrained=True)
 
-    num_ftrs = pretrained_ghostnet.classifier.in_features
-    pretrained_ghostnet.classifier = nn.Sequential(
-        nn.Dropout(p=0.25),  # <--- ADD DROPOUT HERE
-        nn.Linear(num_ftrs, le.classes_.size)
+    # # 2. FREEZE THE ENTIRE BACKBONE
+    for model_param in pretrained_model.parameters():
+        model_param.requires_grad = False
+
+    # 3. REPLACE THE CLASSIFIER HEAD
+    num_ftrs = pretrained_model.classifier.in_features
+    print(f"Number of features in the classifier: {num_ftrs}")
+
+    pretrained_model.classifier = nn.Sequential(
+        # nn.Dropout(p=0.25), 
+        # nn.Linear(num_ftrs, 50),
+        # nn.Linear(50, len(le.classes_)),
+        nn.Linear(num_ftrs, len(le.classes_))
     )
-    pretrained_ghostnet = pretrained_ghostnet.to(device)
-    
+
+    # 4. Move the model to the device
+    pretrained_model = pretrained_model.to(device)
+
+    # 5. Initialize Loss and Optimizer
     criterion = nn.CrossEntropyLoss()
-    optimizer = torch.optim.Adam(pretrained_ghostnet.parameters(), lr=0.001)
-    num_epochs = 60
+    optimizer = torch.optim.Adam(
+        filter(lambda p: p.requires_grad, pretrained_model.parameters()),
+        lr=param["learning_rate"]
+    )
+    num_epochs = param["num_epochs"]
     # Log hyperparameters
-    mlflow.log_param("learning_rate", optimizer.param_groups[0]['lr'])
-    mlflow.log_param("batch_size", train_loader.batch_size)
-    mlflow.log_param("num_epochs", num_epochs)
-    mlflow.log_param("model_architecture", "GhostNet+dropout")
-    mlflow.log_param("optimizer", optimizer.__class__.__name__)
-    mlflow.log_param("loss_function", criterion.__class__.__name__)
+    mlflow.log_param("learning_rate", param["learning_rate"])
+    mlflow.log_param("batch_size", param["batch_size"])
+    mlflow.log_param("num_epochs", param["num_epochs"])
+    mlflow.log_param("model_architecture", param["model_architecture"])
+    mlflow.log_param("optimizer", param["optimizer"])
+    mlflow.log_param("loss_function", param["loss_function"])
     
     def train_model(model, train_loader, val_loader, criterion, optimizer, device, epochs=1):
         best_val_acc = 0.0
@@ -260,40 +297,40 @@ def train_evaluate_register(le, train_loader, val_loader):
         return best_val_acc, model
 
 
-    acc, model = train_model(pretrained_ghostnet, train_loader, val_loader, criterion, optimizer, device, num_epochs)
+    acc, model = train_model(pretrained_model, train_loader, val_loader, criterion, optimizer, device, num_epochs)
 
-    mlflow.pytorch.log_model(model, "model", registered_model_name="GhostNet_Classifier")
+    model_info = mlflow.pytorch.log_model(model, "Classifier")
+    model_uri = model_info.model_uri
     
     if acc >= ACCURACY_THRESHOLD:
         print(f"Validation accuracy {acc:.4f} meets the threshold of {ACCURACY_THRESHOLD}. Registering model...")
-        model_uri = f"runs:/{mlflow.active_run().info.run_id}/GhostNet_Classifier"
-        registered_model = mlflow.register_model(model_uri, "GhostNet-Classifier-Prod")
+        registered_model = mlflow.register_model(model_uri, "Classifier-Prod")
         print(f"Model registered as '{registered_model.name}' version {registered_model.version}")
     else:
         print(f"Model accuracy ({acc:.4f}) is below the threshold. Not registering.")
     print("Training run finished.")
     
     
-    
-    
-def main(run_id):
-    le, train_loader, val_loader = preprocess_data(run_id)
-    train_evaluate_register(le, train_loader, val_loader)
+
+
+def main(run_id, batch_size, lr, num_epochs):
+    print(f"Using run_id: {run_id}")
+    print(f"Using batch_size: {batch_size}, learning_rate: {lr}, num_epochs: {num_epochs}")
+    le, train_loader, val_loader = preprocess_data(run_id, batch_size)
+    train_evaluate_register(le, train_loader, val_loader, lr, num_epochs)
     
 if __name__ == "__main__":
-    if len(sys.argv) == 2:
-        if (sys.argv[1]=="local") and (os.path.exists("run_id.json")):
-            with open("run_id.json", "r") as f:
-                import json
-                data = json.load(f)
-                run_id = data.get("validation_run_id")
-                if not run_id:
-                    print("run_id.json found but 'run_id' key is missing.")
-                    sys.exit(1)
-        else:
-            run_id = sys.argv[1]
-    else:
-        print("Usage: python scripts/03_train_evaluate_register.py <validation_run_id>")
+    if len(sys.argv) < 2:
+        print("Usage: python scripts/02_preprocess_and_training.py <validation_run_id> [batch_size] [lr] [num_epochs]")
         sys.exit(1)
         
-    main(run_id)
+    run_id = sys.argv[1] if len(sys.argv) > 1 else "local"
+    if run_id == "local":
+        with open("run_id.json", "r") as f:
+            data = json.load(f)
+            run_id = data.get("validation_run_id", -1)
+    batch_size = int(sys.argv[2]) if len(sys.argv) > 2 else 32
+    lr = float(sys.argv[3]) if len(sys.argv) > 3 else 0.001
+    num_epochs = int(sys.argv[4]) if len(sys.argv) > 4 else 2
+    
+    main(run_id, batch_size, lr, num_epochs)

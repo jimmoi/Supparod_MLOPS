@@ -85,7 +85,7 @@ jobs:
 
     - name: Transition Model to Staging
       if: success()
-      run: python mlops_pipeline/scripts/03_transition_model.py "GhostNet-Classifier-Prod" "Staging"
+      run: python mlops_pipeline/scripts/03_transition_model.py "Classifier-Prod" "Staging"
 
 
     - name: Upload MLflow artifacts for inspection
