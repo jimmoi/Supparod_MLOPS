@@ -1,5 +1,5 @@
 import os
-# import random
+from copy import deepcopy
 import sys
 # import numpy as np
 import pandas as pd
@@ -8,27 +8,16 @@ import json
 from tqdm import tqdm
 import torch
 import torch.nn as nn
-# import torch.nn.functional as F
-# from torch.utils.data import random_split
 from torch.utils.data import DataLoader, Dataset
-# from torch.utils.data import random_split, SubsetRandomSampler
 from torchvision import transforms
-# from torchvision import datasets
 import torchvision.models as models
 
-# from torchvision.datasets import ImageFolder
-# from torchvision.transforms import ToTensor
-# from torchvision.utils import make_grid
 
-# import matplotlib.pyplot as plt
 from sklearn.preprocessing import LabelEncoder
-# from sklearn.model_selection import train_test_split
-# from sklearn.metrics import classification_report
 from PIL import Image
 
 import mlflow
-# import mlflow.sklearn
-from mlflow.artifacts import download_artifacts # เพิ่ม import นี้
+from mlflow.artifacts import download_artifacts
 
 
 from torchvision.models import ResNet50_Weights
@@ -94,12 +83,21 @@ def preprocess_data(data_validation_id, batch_size):
                 transforms.Normalize([0.485, 0.456, 0.406],
                                     [0.229, 0.224, 0.225])
         ])
+        
+        inference_transform = transforms.Compose([
+        transforms.Resize(224),
+        transforms.CenterCrop(224),
+        transforms.ToTensor(),
+        transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
+    ])
 
 
         ## เก็บ artifact transform ที่ใช้
         with open(os.path.join(processed_data_dir, "preprocess_artifact.pkl"), "wb") as f:
-            data = {"label_encoder": le,
-                    "transform": transform}
+            data = {
+                "label_encoder": le,
+                "transform": inference_transform
+                }
             pickle.dump(data, f)
 
         mlflow.log_artifacts(processed_data_dir, artifact_path="processed_data")
@@ -164,13 +162,13 @@ def train_evaluate_register(le, train_loader, val_loader, lr, num_epochs):
         "experiment_name": f"Model Training lr_{lr}_epochs_{num_epochs}",
         "run_name": "GhostNetv3_Finetune",
         "accuracy_threshold": 0.10,
-        "pretrained_model_url": "ghostnetv3_100",
-        "model_registered_name": "GhostNetv3_Classifier",
-        "model_name": "GhostNetv3-Classifier-Prod",
+        "pretrained_model_url": "ghostnetv1_100",
+        "model_registered_name": "GhostNetv1_Classifier",
+        "model_name": "GhostNetv1-Classifier-Prod",
         "learning_rate": lr,
         "batch_size": train_loader.batch_size,
         "num_epochs": num_epochs,
-        "model_architecture": "GhostNetv3+FC",
+        "model_architecture": "GhostNetv1+FC",
         "optimizer": "Adam",
         "loss_function": "CrossEntropyLoss",
     }
@@ -187,22 +185,24 @@ def train_evaluate_register(le, train_loader, val_loader, lr, num_epochs):
     # 1. Load the pretrained ResNet model
     import timm
     # pretrained_model = models.resnet50(weights=ResNet50_Weights.IMAGENET1K_V1)
-    pretrained_model = timm.create_model(param["pretrained_model_url"], pretrained=True)
+    # pretrained_model = timm.create_model(param["pretrained_model_url"], pretrained=True)
+    pretrained_model =  torch.hub.load('huawei-noah/ghostnet', 'ghostnet_1x', pretrained=True)
 
     # # 2. FREEZE THE ENTIRE BACKBONE
-    for model_param in pretrained_model.parameters():
-        model_param.requires_grad = False
+    # for model_param in pretrained_model.parameters():
+    #     model_param.requires_grad = False
 
     # 3. REPLACE THE CLASSIFIER HEAD
     num_ftrs = pretrained_model.classifier.in_features
     print(f"Number of features in the classifier: {num_ftrs}")
 
-    pretrained_model.classifier = nn.Sequential(
-        # nn.Dropout(p=0.25), 
-        # nn.Linear(num_ftrs, 50),
-        # nn.Linear(50, len(le.classes_)),
-        nn.Linear(num_ftrs, len(le.classes_))
-    )
+    pretrained_model.classifier = nn.Linear(num_ftrs, len(le.classes_))
+    # pretrained_model.classifier = nn.Sequential(
+    #     # nn.Dropout(p=0.25), 
+    #     # nn.Linear(num_ftrs, 50),
+    #     # nn.Linear(50, len(le.classes_)),
+    #     nn.Linear(num_ftrs, len(le.classes_))
+    # )
 
     # 4. Move the model to the device
     pretrained_model = pretrained_model.to(device)
@@ -230,7 +230,9 @@ def train_evaluate_register(le, train_loader, val_loader, lr, num_epochs):
             running_loss = 0.0
             running_corrects = 0
             # class_running_corrects = [0] * len(le.classes_)
-
+            
+            # Training phase
+            model.train()
             for inputs, labels in tqdm(train_loader, desc=f"Epoch {epoch+1}/{num_epochs} - Training"):
                 inputs = inputs.to(device)
                 labels = labels.to(device)
@@ -286,7 +288,7 @@ def train_evaluate_register(le, train_loader, val_loader, lr, num_epochs):
             # Deep copy the model if it has the best validation accuracy so far
             if val_epoch_acc > best_val_acc:
                 best_val_acc = val_epoch_acc
-                best_model_wts = model.state_dict().copy()
+                best_model_wts = deepcopy(model.state_dict())
 
         print(f"Best Validation Acc: {best_val_acc:.4f}")
 
