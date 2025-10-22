@@ -6,7 +6,7 @@ import os
 
 def validate_data():
     """
-    Loads the iris dataset, performs basic validation checks,
+    Loads dataset, performs basic validation checks,
     and logs the results to MLflow.
     """
     # Set the experiment name for this step
