@@ -78,7 +78,7 @@ jobs:
 
 
     - name: Run Data Preprocessing, and Model Training, Evaluation, and Registration
-      run: python mlops_pipeline/scripts/02_preprocess_and_training.py ${{ steps.data_validation.outputs.run_id }}
+      run: python mlops_pipeline/scripts/02_preprocess_and_training.py ${{ steps.data_validation.outputs.validation_run_id }}
 
 
     - name: Transition Model to Staging
