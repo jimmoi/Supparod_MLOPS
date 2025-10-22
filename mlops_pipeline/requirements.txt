@@ -8,3 +8,4 @@ Pillow
 torch
 torchvision
 cupy-cuda12x
+timm
