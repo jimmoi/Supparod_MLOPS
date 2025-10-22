@@ -8,6 +8,7 @@ import json
 from tqdm import tqdm
 import torch
 import torch.nn as nn
+import torch.jit as jit
 from torch.utils.data import DataLoader, Dataset
 from torchvision import transforms
 import torchvision.models as models
@@ -161,7 +162,7 @@ def train_evaluate_register(le, train_loader, val_loader, lr, num_epochs):
     param = {
         "experiment_name": f"Model Training lr_{lr}_epochs_{num_epochs}",
         "run_name": "GhostNetv3_Finetune",
-        "accuracy_threshold": 0.10,
+        "accuracy_threshold": 0.85,
         "pretrained_model_url": "ghostnetv1_100",
         "model_registered_name": "GhostNetv1_Classifier",
         "model_name": "GhostNetv1-Classifier-Prod",
@@ -183,7 +184,6 @@ def train_evaluate_register(le, train_loader, val_loader, lr, num_epochs):
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     print(f"Using device: {device}")
     # 1. Load the pretrained ResNet model
-    import timm
     # pretrained_model = models.resnet50(weights=ResNet50_Weights.IMAGENET1K_V1)
     # pretrained_model = timm.create_model(param["pretrained_model_url"], pretrained=True)
     pretrained_model =  torch.hub.load('huawei-noah/ghostnet', 'ghostnet_1x', pretrained=True)
@@ -300,7 +300,12 @@ def train_evaluate_register(le, train_loader, val_loader, lr, num_epochs):
 
 
     acc, model = train_model(pretrained_model, train_loader, val_loader, criterion, optimizer, device, num_epochs)
-
+    
+    
+    example_input, _ = next(iter(train_loader))
+    traced_script_module = jit.trace(model, example_input.to(device))
+    traced_script_module.save("test.pt")
+    
     model_info = mlflow.pytorch.log_model(model, "Classifier")
     model_uri = model_info.model_uri
     
