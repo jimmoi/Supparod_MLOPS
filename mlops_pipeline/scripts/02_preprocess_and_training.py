@@ -309,9 +309,6 @@ def train_evaluate_register(le, train_loader, val_loader, lr, num_epochs):
     else:
         print(f"Model accuracy ({acc:.4f}) is below the threshold. Not registering.")
     print("Training run finished.")
-    
-    
-
 
 def main(run_id, batch_size, lr, num_epochs):
     print(f"Using run_id: {run_id}")
