@@ -102,8 +102,9 @@ def validate_data():
         
         if "GITHUB_OUTPUT" in os.environ:
             with open(os.environ["GITHUB_OUTPUT"], "a") as f:
+                print(os.environ["GITHUB_OUTPUT"])
                 print(f"validation_run_id={run_id}", file=f)
-                print(os.environ)
+                print(os.environ["GITHUB_OUTPUT"])
         else:
             with open("run_id.json", "w") as f:
                 json.dump({"validation_run_id": run_id}, f)
