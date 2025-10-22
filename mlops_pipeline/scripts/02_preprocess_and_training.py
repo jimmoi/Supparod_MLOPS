@@ -225,6 +225,9 @@ def train_evaluate_register(le, train_loader, val_loader, lr, num_epochs):
     def train_model(model, train_loader, val_loader, criterion, optimizer, device, epochs=1):
         best_val_acc = 0.0
         best_model_wts = None
+        
+        print("test image path exist?:", os.path.exists(r"Dataset_github/waterapple\\waterapple805.jpg"))
+        print("test image path exist?:", os.path.exists(r"Dataset_github\eggplant\eggplant801.jpg"))
 
         for epoch in range(epochs):
             running_loss = 0.0
