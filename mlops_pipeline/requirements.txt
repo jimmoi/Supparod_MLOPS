@@ -7,4 +7,5 @@ tqdm
 Pillow
 torch
 torchvision
-cupy
+cupy-cuda12x
+timm

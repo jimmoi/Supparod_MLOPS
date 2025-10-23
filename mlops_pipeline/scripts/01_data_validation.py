@@ -36,7 +36,10 @@ def validate_data():
             merged_df["category"] = merged_df["image:FILE"].apply(lambda x: os.path.split(x)[0].split("/")[-1]) # from directory structure
             merged_df.rename(columns={"image:FILE": "file_path", "category": "class"}, inplace=True)
             class_names = merged_df["class"].unique()
-            merged_df["file_path"] = merged_df["file_path"].apply(lambda x: os.path.join(data["root_dir"], x))
+            
+            # fuck this path
+            merged_df["file_path"] = merged_df["file_path"].apply(lambda x: os.path.join(data["root_dir"], os.path.join(*x.split("/"))))
+            merged_df["file_path"] = merged_df["file_path"].apply(lambda x: x.replace("\\", "/"))
             
             number_per_class = {}
             for section in data.keys():
@@ -103,6 +106,7 @@ def validate_data():
         if "GITHUB_OUTPUT" in os.environ:
             with open(os.environ["GITHUB_OUTPUT"], "a") as f:
                 print(f"validation_run_id={run_id}", file=f)
+
         else:
             with open("run_id.json", "w") as f:
                 json.dump({"validation_run_id": run_id}, f)
