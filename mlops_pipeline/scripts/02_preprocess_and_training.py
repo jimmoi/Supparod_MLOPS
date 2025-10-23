@@ -304,7 +304,7 @@ def train_evaluate_register(le, train_loader, val_loader, lr, num_epochs):
     
     example_input, _ = next(iter(train_loader))
     traced_script_module = jit.trace(model, example_input.to(device))
-    traced_script_module.save("test.pt")
+    traced_script_module.save(param["model_name"])
     
     model_info = mlflow.pytorch.log_model(model, "Classifier")
     model_uri = model_info.model_uri
