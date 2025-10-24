@@ -11,17 +11,11 @@ import torch.nn as nn
 import torch.jit as jit
 from torch.utils.data import DataLoader, Dataset
 from torchvision import transforms
-import torchvision.models as models
-
-
+from sklearn.metrics import f1_score
 from sklearn.preprocessing import LabelEncoder
 from PIL import Image
-
 import mlflow
 from mlflow.artifacts import download_artifacts
-
-
-from torchvision.models import ResNet50_Weights
 
 # Data Preprocessing
 def preprocess_data(data_validation_id, batch_size):
@@ -154,7 +148,7 @@ def preprocess_data(data_validation_id, batch_size):
 
 def train_evaluate_register(le, train_loader, val_loader, lr, num_epochs):
     """
-    Trains a model, evaluates it, and
+    Trains a model, evaluates it using F1-score, and
     registers the model in the MLflow Model Registry if it meets
     the performance threshold.
     """
@@ -162,7 +156,7 @@ def train_evaluate_register(le, train_loader, val_loader, lr, num_epochs):
     param = {
         "experiment_name": f"Model Training lr_{lr}_epochs_{num_epochs}",
         "run_name": "GhostNetv3_Finetune",
-        "accuracy_threshold": 0.85,
+        "f1_threshold": 0.85,  # Changed from accuracy_threshold to f1_threshold
         "pretrained_model_url": "ghostnetv1_100",
         "model_registered_name": "GhostNetv1_Classifier",
         "model_name": "GhostNetv1-Classifier-Prod",
@@ -174,7 +168,7 @@ def train_evaluate_register(le, train_loader, val_loader, lr, num_epochs):
         "loss_function": "CrossEntropyLoss",
     }
     
-    ACCURACY_THRESHOLD = param["accuracy_threshold"]
+    F1_THRESHOLD = param["f1_threshold"] # Use F1_THRESHOLD
     mlflow.set_experiment(param["experiment_name"])
 
     with mlflow.start_run(run_name=param["run_name"]):
@@ -183,31 +177,20 @@ def train_evaluate_register(le, train_loader, val_loader, lr, num_epochs):
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     print(f"Using device: {device}")
-    # 1. Load the pretrained ResNet model
-    # pretrained_model = models.resnet50(weights=ResNet50_Weights.IMAGENET1K_V1)
-    # pretrained_model = timm.create_model(param["pretrained_model_url"], pretrained=True)
-    pretrained_model =  torch.hub.load('huawei-noah/ghostnet', 'ghostnet_1x', pretrained=True)
+    
+    # 1. Load the pretrained GhostNet model
+    pretrained_model = torch.hub.load('huawei-noah/ghostnet', 'ghostnet_1x', pretrained=True)
 
-    # # 2. FREEZE THE ENTIRE BACKBONE
-    # for model_param in pretrained_model.parameters():
-    #     model_param.requires_grad = False
-
-    # 3. REPLACE THE CLASSIFIER HEAD
+    # 2. REPLACE THE CLASSIFIER HEAD
     num_ftrs = pretrained_model.classifier.in_features
     print(f"Number of features in the classifier: {num_ftrs}")
 
     pretrained_model.classifier = nn.Linear(num_ftrs, len(le.classes_))
-    # pretrained_model.classifier = nn.Sequential(
-    #     # nn.Dropout(p=0.25), 
-    #     # nn.Linear(num_ftrs, 50),
-    #     # nn.Linear(50, len(le.classes_)),
-    #     nn.Linear(num_ftrs, len(le.classes_))
-    # )
 
-    # 4. Move the model to the device
+    # 3. Move the model to the device
     pretrained_model = pretrained_model.to(device)
 
-    # 5. Initialize Loss and Optimizer
+    # 4. Initialize Loss and Optimizer
     criterion = nn.CrossEntropyLoss()
     optimizer = torch.optim.Adam(
         filter(lambda p: p.requires_grad, pretrained_model.parameters()),
@@ -223,16 +206,16 @@ def train_evaluate_register(le, train_loader, val_loader, lr, num_epochs):
     mlflow.log_param("loss_function", param["loss_function"])
     
     def train_model(model, train_loader, val_loader, criterion, optimizer, device, epochs=1):
-        best_val_acc = 0.0
+        best_val_f1 = 0.0 # Changed to best_val_f1
         best_model_wts = None
 
         for epoch in range(epochs):
-            running_loss = 0.0
-            running_corrects = 0
-            # class_running_corrects = [0] * len(le.classes_)
-            
             # Training phase
             model.train()
+            running_loss = 0.0
+            all_train_labels = []
+            all_train_preds = []
+
             for inputs, labels in tqdm(train_loader, desc=f"Epoch {epoch+1}/{num_epochs} - Training"):
                 inputs = inputs.to(device)
                 labels = labels.to(device)
@@ -247,19 +230,21 @@ def train_evaluate_register(le, train_loader, val_loader, lr, num_epochs):
                 optimizer.step()
 
                 running_loss += loss.item() * inputs.size(0)
-                running_corrects += torch.sum(preds == labels.data)
-                # class_running_corrects += torch.sum(preds.unsqueeze(1) == torch.arange(len(le.classes_)).to(device), dim=0).cpu().numpy()
+                all_train_labels.extend(labels.cpu().numpy())
+                all_train_preds.extend(preds.cpu().numpy())
 
             epoch_loss = running_loss / len(train_loader.dataset)
-            epoch_acc = running_corrects.double() / len(train_loader.dataset)
-            # epoch_class_acc = class_running_corrects / len(train_loader.dataset)
-
-            print(f"Epoch {epoch+1}/{num_epochs} - Training Loss: {epoch_loss:.4f} Acc: {epoch_acc:.4f}")
+            
+            # Calculate Training F1-score
+            train_f1 = f1_score(all_train_labels, all_train_preds, average='macro')
+            
+            print(f"Epoch {epoch+1}/{num_epochs} - Training Loss: {epoch_loss:.4f} F1-Score (Macro): {train_f1:.4f}")
 
             # Validation phase
             model.eval()
             val_loss = 0.0
-            val_running_corrects = 0
+            all_val_labels = []
+            all_val_preds = []
 
             with torch.no_grad():
                 for inputs, labels in tqdm(val_loader, desc=f"Epoch {epoch+1}/{num_epochs} - Validation"):
@@ -271,53 +256,55 @@ def train_evaluate_register(le, train_loader, val_loader, lr, num_epochs):
                     loss = criterion(outputs, labels)
                     
                     val_loss += loss.item() * inputs.size(0)
-                    val_running_corrects += torch.sum(preds == labels.data)
-                    
+                    all_val_labels.extend(labels.cpu().numpy())
+                    all_val_preds.extend(preds.cpu().numpy())
+                        
             val_loss = val_loss / len(val_loader.dataset)
-            val_epoch_acc = val_running_corrects.double() / len(val_loader.dataset)
-            print(f"Epoch {epoch+1}/{num_epochs} - Validation Acc: {val_epoch_acc:.4f}")
+            
+            # Calculate Validation F1-score
+            val_epoch_f1 = f1_score(all_val_labels, all_val_preds, average='macro')
+            
+            print(f"Epoch {epoch+1}/{num_epochs} - Validation F1-Score (Macro): {val_epoch_f1:.4f}")
 
             # Log metrics to MLflow
             mlflow.log_metric("train_loss", epoch_loss, step=epoch)
-            mlflow.log_metric("train_accuracy", epoch_acc.item(), step=epoch)
+            mlflow.log_metric("train_f1_macro", train_f1, step=epoch) # Log F1 instead of accuracy
             mlflow.log_metric("val_loss", val_loss, step=epoch)
-            mlflow.log_metric("val_accuracy", val_epoch_acc.item(), step=epoch)
+            mlflow.log_metric("val_f1_macro", val_epoch_f1, step=epoch) # Log F1 instead of accuracy
             
             
-
-            # Deep copy the model if it has the best validation accuracy so far
-            if val_epoch_acc > best_val_acc:
-                best_val_acc = val_epoch_acc
+            # Deep copy the model if it has the best validation F1-score so far
+            if val_epoch_f1 > best_val_f1: # Check against F1-score
+                best_val_f1 = val_epoch_f1
                 best_model_wts = deepcopy(model.state_dict())
 
-        print(f"Best Validation Acc: {best_val_acc:.4f}")
+        print(f"Best Validation F1-Score (Macro): {best_val_f1:.4f}")
 
         # Load best model weights
         if best_model_wts is not None:
             model.load_state_dict(best_model_wts)
             
-        return best_val_acc, model
+        return best_val_f1, model # Return F1-score
 
-
-    acc, model = train_model(pretrained_model, train_loader, val_loader, criterion, optimizer, device, num_epochs)
+    # Call train_model and get the best F1-score
+    f1_score_val, model = train_model(pretrained_model, train_loader, val_loader, criterion, optimizer, device, num_epochs)
     
     
     example_input, _ = next(iter(train_loader))
     traced_script_module = jit.trace(model, example_input.to(device))
-    traced_script_module.save("test.pt")
+    traced_script_module.save("test1.pt")
     
     model_info = mlflow.pytorch.log_model(model, "Classifier")
     model_uri = model_info.model_uri
     
-    if acc >= ACCURACY_THRESHOLD:
-        print(f"Validation accuracy {acc:.4f} meets the threshold of {ACCURACY_THRESHOLD}. Registering model...")
+    # Check F1-score against the F1_THRESHOLD
+    if f1_score_val >= F1_THRESHOLD:
+        print(f"Validation F1-score {f1_score_val:.4f} meets the threshold of {F1_THRESHOLD}. Registering model...")
         registered_model = mlflow.register_model(model_uri, "Classifier-Prod")
         print(f"Model registered as '{registered_model.name}' version {registered_model.version}")
     else:
-        print(f"Model accuracy ({acc:.4f}) is below the threshold. Not registering.")
+        print(f"Model F1-score ({f1_score_val:.4f}) is below the threshold. Not registering.")
     print("Training run finished.")
-    
-    
 
 
 def main(run_id, batch_size, lr, num_epochs):
