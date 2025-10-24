@@ -1,7 +1,8 @@
 import streamlit as st
 from PIL import Image
 import requests
-import pandas as pd # Import pandas for better table display
+import pandas as pd
+import io
 
 # --- Page Configuration ---
 st.set_page_config(
@@ -11,15 +12,15 @@ st.set_page_config(
 )
 
 # --- Title and Description ---
-st.title("🍍 Plant Classifier by Supparod")
+st.title("🍍 Plant Classifier & Anomaly Detector")
 st.write(
-    "Upload a plant image, and the model will predict the type of plant. "
-    "This app sends the image to a backend API for processing."
+    "Upload a plant image. The system will first check if it's a valid plant type (not an anomaly) "
+    "and then predict its species."
 )
 
 # --- API Endpoint ---
+# Make sure your Flask API is running at this address.
 API_URL = "http://127.0.0.1:5001/predict"
-
 
 # --- Main Application Logic ---
 uploaded_file = st.file_uploader(
@@ -28,53 +29,84 @@ uploaded_file = st.file_uploader(
 )
 
 if uploaded_file is not None:
-    image = Image.open(uploaded_file)
+    # Read image bytes for both displaying and sending
+    image_bytes = uploaded_file.getvalue()
+    image = Image.open(io.BytesIO(image_bytes))
+    
+    # Create a smaller version for display
     display_image = image.copy()
     display_image.thumbnail((400, 400))
 
     st.markdown("---")
-    col1, col2 = st.columns(2)
+    col1, col2 = st.columns([0.8, 1.2]) # Adjust column widths
 
     with col1:
         st.image(display_image, caption='Uploaded Image', use_container_width=True)
 
     with col2:
-        if st.button('Predict'):
+        if st.button('Analyze Image', type="primary"):
             with st.spinner('Sending image to the model API...'):
                 try:
-                    image_bytes = uploaded_file.getvalue()
+                    # Prepare the file for the POST request
                     files = {'file': (uploaded_file.name, image_bytes, uploaded_file.type)}
-                    response = requests.post(API_URL, files=files)
-                    response.raise_for_status()
+                    
+                    # Send the request
+                    response = requests.post(API_URL, files=files, timeout=30) # Added a timeout
+                    response.raise_for_status() # Raise an error for bad status codes (4xx or 5xx)
+                    
+                    # Get the JSON result
                     result = response.json()
 
-                    # --- START: DISPLAY TOP-5 RESULTS ---
-                    st.success("Prediction Complete!")
+                    # --- START OF MODIFIED SECTION ---
+                    # Check the 'status' field returned by the API
+                    status = result.get('status')
 
-                    # 1. ดึง list ของ predictions ออกมา
-                    predictions = result.get('predictions', [])
-                    time_taken = result.get('time_taken', 'N/A')
+                    if status == 'normal':
+                        st.success("✅ Analysis Complete: Image is Normal")
+                        
+                        predictions = result.get('predictions', [])
+                        time_taken = result.get('time_taken', 'N/A')
+                        anomaly_score = result.get('anomaly_score', 'N/A')
 
-                    if predictions:
-                        # 2. แสดงผลการทำนายอันดับ 1 ให้เด่นชัด
-                        top_prediction = predictions[0]
-                        st.write(f"**Top Prediction:** `{top_prediction['class']}`")
-                        st.write(f"**Confidence:** `{top_prediction['confidence']}`")
-                        st.write(f"**Inference Time:** `{time_taken} seconds`")
+                        if predictions:
+                            top_prediction = predictions[0]
+                            st.write(f"**Top Prediction:** `{top_prediction['class']}`")
+                            st.write(f"**Confidence:** `{top_prediction['confidence']}`")
+                            st.write(f"**Inference Time:** `{time_taken} seconds`")
+                            st.write(f"**Anomaly Score:** `{anomaly_score}` (Below threshold)")
+                            
+                            st.markdown("---")
+                            st.subheader("All Top 5 Predictions")
+                            
+                            df_predictions = pd.DataFrame(predictions)
+                            df_predictions.columns = ["Predicted Class", "Confidence"]
+                            st.dataframe(df_predictions, use_container_width=True, hide_index=True)
+                        else:
+                            st.warning("Status is 'normal', but no predictions were returned.")
+
+                    elif status == 'anomaly_detected':
+                        st.error("🚨 Analysis Complete: Anomaly Detected!")
                         
-                        st.markdown("---")
-                        st.subheader("All Top 5 Predictions")
+                        score = result.get('anomaly_score')
+                        threshold = result.get('threshold')
+                        message = result.get('message')
                         
-                        # 3. สร้าง DataFrame เพื่อแสดงผลเป็นตารางสวยงาม
-                        df_predictions = pd.DataFrame(predictions)
-                        df_predictions.columns = ["Predicted Class", "Confidence"]
-                        st.dataframe(df_predictions, use_container_width=True, hide_index=True)
+                        st.metric(
+                            label="Anomaly Score", 
+                            value=f"{float(score):.2f}", 
+                            delta=f"Threshold: {float(threshold):.2f}",
+                            delta_color="inverse"
+                        )
+                        st.warning(message)
                         
                     else:
-                        st.warning("No predictions were returned from the API.")
-                    # --- END: DISPLAY TOP-5 RESULTS ---
+                        # Handle any other unexpected responses
+                        st.error("Received an unknown response from the API.")
+                        st.json(result)
+                    
+                    # --- END OF MODIFIED SECTION ---
 
                 except requests.exceptions.RequestException as e:
-                    st.error(f"Error calling the API: {e}")
-                except KeyError:
-                    st.error("Received an unexpected response from the API. Please check the API's output format.")
+                    st.error(f"API Connection Error: Could not connect to the model server. Please ensure the API is running. Details: {e}")
+                except Exception as e:
+                    st.error(f"An unexpected error occurred: {e}")
