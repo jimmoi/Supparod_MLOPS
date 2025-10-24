@@ -292,7 +292,7 @@ def train_evaluate_register(le, train_loader, val_loader, lr, num_epochs):
     
     example_input, _ = next(iter(train_loader))
     traced_script_module = jit.trace(model, example_input.to(device))
-    traced_script_module.save("test1.pt")
+    traced_script_module.save(param["model_name"])
     
     model_info = mlflow.pytorch.log_model(model, "Classifier")
     model_uri = model_info.model_uri
@@ -305,7 +305,6 @@ def train_evaluate_register(le, train_loader, val_loader, lr, num_epochs):
     else:
         print(f"Model F1-score ({f1_score_val:.4f}) is below the threshold. Not registering.")
     print("Training run finished.")
-
 
 def main(run_id, batch_size, lr, num_epochs):
     print(f"Using run_id: {run_id}")
